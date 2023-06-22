@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>Record and Play Audio Example</title>
+   <style>
+     body {
+            text-align: center;
+            font-family: Papyrus, fantasy;
+            animation: backgroundAnimation 20s infinite;
+        }
+
+        @keyframes backgroundAnimation {
+            0% {
+                background-color: #60f013;
+            }
+
+            20% {
+                background-color: #13f0e5;
+            }
+            40% {
+                background-color: #1394f0 ;
+            }
+
+            60% {
+                background-color: #f013dd;
+            }
+            80% {
+                background-color: #f01355;
+            }
+            100% {
+                background-color: #60f013;
+            }
+
+        }
+
+        h1 {
+            margin-top: 40px;
+        }
+
+        form {
+            margin: 20px auto;
+            max-width: 400px;
+            padding: 20px;
+            background-color: #fff;
+            border: 1px solid #ccc;
+            border-radius: 5px;
+        }
+
+        label {
+            display: block;
+            margin-bottom: 10px;
+            font-weight: bold;
+        }
+
+        select,
+        input[type="text"] {
+            width: 100%;
+            padding: 10px;
+            margin-bottom: 20px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+
+        input[type="submit"] {
+            background-color: #4CAF50;
+            color: #fff;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        input[type="submit"]:hover {
+            background-color: #45a049;
+        }
+
+        #status {
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+
+        button {
+            margin: 10px;
+            padding: 10px 20px;
+            background-color: #4CAF50;
+            color: #fff;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+
+        #playback {
+            display: block;
+            margin: 20px auto;
+        }
+
+        canvas {
+            width: 100%;
+            height: 200px;
+            background-color: #f0f0f0;
+        }
+    </style>
+
+    <script>
+        let mediaRecorder;
+        let chunks = [];
+        let isRecording = false;
+        let audioContext;
+        let analyser;
+        let canvas;
+        let canvasCtx;
+        let bufferLength;
+        let dataArray;
+        let recordedBlob;
+
+        function startRecording() {
+            navigator.mediaDevices.getUserMedia({ audio: true })
+                .then(function (stream) {
+                    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    analyser = audioContext.createAnalyser();
+                    analyser.fftSize = 2048;
+                    bufferLength = analyser.frequencyBinCount;
+                    dataArray = new Uint8Array(bufferLength);
+
+                    mediaRecorder = new MediaRecorder(stream);
+                    mediaRecorder.start();
+
+                    mediaRecorder.addEventListener('dataavailable', function (e) {
+                        chunks.push(e.data);
+                    });
+
+                    isRecording = true;
+                    document.getElementById('status').innerText = 'Recording...';
+
+                    // Start visualizing audio waveform
+                    visualize(stream);
+                })
+                .catch(function (err) {
+                    console.error('Error accessing microphone: ' + err);
+                });
+        }
+
+        function stopRecording() {
+            mediaRecorder.stop();
+            mediaRecorder.addEventListener('stop', function () {
+                recordedBlob = new Blob(chunks, { type: 'audio/webm' });
+
+                const formData = new FormData();
+                formData.append('audio', recordedBlob);
+
+                fetch('/', {
+                    method: 'POST',
+                    body: formData
+                })
+                    .then(function (response) {
+                        console.log('Audio uploaded successfully!');
+                        document.getElementById('playback').src = URL.createObjectURL(recordedBlob);
+                        document.getElementById('playback').controls = true;
+                    })
+                    .catch(function (error) {
+                        console.error('Error uploading audio: ' + error);
+                    });
+
+                chunks = [];
+                isRecording = false;
+                document.getElementById('status').innerText = '';
+            });
+        }
+
+        function visualize(stream) {
+            const source = audioContext.createMediaStreamSource(stream);
+            source.connect(analyser);
+
+            canvas = document.getElementById('waveform');
+            canvasCtx = canvas.getContext('2d');
+
+            function draw() {
+                const WIDTH = canvas.width;
+                const HEIGHT = canvas.height;
+
+                requestAnimationFrame(draw);
+
+                analyser.getByteTimeDomainData(dataArray);
+
+                canvasCtx.fillStyle = 'rgb(255, 255, 255)';
+                canvasCtx.fillRect(0, 0, WIDTH, HEIGHT);
+
+                canvasCtx.lineWidth = 2;
+                canvasCtx.strokeStyle = 'rgb(0, 0, 0)';
+
+                canvasCtx.beginPath();
+
+                const sliceWidth = WIDTH * 1.0 / bufferLength;
+                let x = 0;
+
+                for (let i = 0; i < bufferLength; i++) {
+                    const v = dataArray[i] / 128.0;
+                    const y = v * HEIGHT / 2;
+
+                    if (i === 0) {
+                        canvasCtx.moveTo(x, y);
+                    } else {
+                        canvasCtx.lineTo(x, y);
+                    }
+
+                    x += sliceWidth;
+                }
+
+                canvasCtx.lineTo(canvas.width, canvas.height / 2);
+                canvasCtx.stroke();
+            }
+
+            draw();
+        }
+    </script>
+</head>
+
+<body>
+    <h1>Audio Player Example</h1>
+    <form method="POST" action="/" enctype="multipart/form-data">
+        <label for="speaker">Select Speaker:</label>
+        <select name="speaker">
+            <option value="en-us">English (US)</option>
+            <option value="en-uk">English (UK)</option>
+            <option value="es-es">Spanish (Spain)</option>
+            <!-- Add more speaker options as needed -->
+        </select>
+        <br><br>
+        <label for="text_input">Enter Text:</label>
+        <input type="text" name="text_input" id="text_input">
+        <br><br>
+        <input type="submit" value="Submit">
+    </form>
+    {% if audio_file %}
+        <audio id="playback" controls>
+            <source src="{{ url_for('static', filename=audio_file) }}" type="audio/mpeg">
+            Your browser does not support the audio element.
+        </audio>
+    {% endif %}
+    <h1>Record and Play Audio Example</h1>
+    <p id="status"></p>
+    <button onclick="startRecording()">Start Recording</button>
+    <button onclick="stopRecording()">Stop Recording</button>
+    <br><br>
+    <audio id="playback" controls></audio>
+    <br>
+    <canvas id="waveform"></canvas>
+
+</body>
+
+</html>
